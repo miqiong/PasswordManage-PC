@@ -1,0 +1,91 @@
+# 仅在推送到 main 成功后：构建便携 ZIP，并自动创建 tag + GitHub Release（中文说明 + 附件）。
+# Tag 格式：v{csproj 中 Version}-b{run_number}，避免同版本多次推送冲突。
+# 不再使用 workflow_dispatch / push.tags，避免双触发。
+
+name: PC 便携版发布
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: pc-release-${{ github.repository }}-main
+  cancel-in-progress: true
+
+jobs:
+  portable-zip:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: 从 csproj 解析版本并生成 tag
+        id: meta
+        shell: pwsh
+        run: |
+          $raw = Get-Content PasswordManage.PC.csproj -Raw
+          if ($raw -notmatch '<Version>\s*([^<\s]+)\s*</Version>') {
+            throw "PasswordManage.PC.csproj 中未找到 <Version>"
+          }
+          $ver = $Matches[1].Trim()
+          $tag = "v$ver-b${{ github.run_number }}"
+          "VERSION=$ver" >> $env:GITHUB_OUTPUT
+          "TAG=$tag" >> $env:GITHUB_OUTPUT
+          Write-Host "Will build PC version $ver, release tag $tag"
+
+      - name: dotnet publish（解压即用，自包含）
+        run: |
+          dotnet publish PasswordManage.PC.csproj -c Release -r win-x64 --self-contained true `
+            -p:PublishSingleFile=false `
+            -p:IncludeNativeLibrariesForSelfExtract=true `
+            -o "./publish/PasswordManage-PC-${{ steps.meta.outputs.VERSION }}"
+
+      - name: 写入使用说明、打包 ZIP、生成 Release 说明
+        id: pack
+        shell: pwsh
+        run: |
+          $ver = "${{ steps.meta.outputs.VERSION }}"
+          $tag = "${{ steps.meta.outputs.TAG }}"
+          $dir = "./publish/PasswordManage-PC-$ver"
+          $zip = "PasswordManage-PC-$ver-win-x64.zip"
+          $text = @"
+          密码库 PC 便携版 $tag
+
+          - 解压本 ZIP 到任意文件夹后，运行 PasswordManage.PC.exe（无需安装程序）。
+          - 保管库数据默认保存在 exe 同目录下的 VaultData 文件夹内（含 vault.db、vault_bootstrap.bin）。
+          - 请勿只拷贝 exe 而不带同目录其它文件；移动时请整包移动或连同 VaultData 一起复制。
+          "@
+          Set-Content -Path (Join-Path $dir "使用说明.txt") -Value $text -Encoding utf8
+          Compress-Archive -Path "$dir/*" -DestinationPath $zip
+          "ZIP_PATH=$zip" >> $env:GITHUB_OUTPUT
+          $body = @"
+          ## 密码库 PC $tag
+
+          ### 内容说明
+          - **便携解压版**：自包含 .NET 8 运行时，Windows 64 位。
+          - **数据位置**：与 exe 同级的 ``VaultData`` 目录（随压缩包可整体迁移）。
+          - **附件**：本 Release 附带 ``$zip``，下载后解压即可。
+          - **构建**：推送 ``main`` 后由 Actions 自动生成本 tag 与 Release。
+
+          ### 程序集版本
+          - $ver
+          "@
+          Set-Content -Path release-notes.md -Value $body -Encoding utf8
+
+      - name: 创建 Release 与 tag（同一操作）
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag = "${{ steps.meta.outputs.TAG }}"
+          $zip = "${{ steps.pack.outputs.ZIP_PATH }}"
+          $title = "密码库 PC $tag"
+          gh release create $tag $zip --title $title --notes-file release-notes.md --target '${{ github.sha }}'
