@@ -249,6 +249,98 @@ public partial class MainWindow : Window
         w.ShowDialog();
     }
 
+    private void OnAddClick(object sender, RoutedEventArgs e)
+    {
+        if (_repo == null || _enc == null || _kek == null) return;
+        var editor = new RecordEditWindow { Owner = this };
+        if (editor.ShowDialog() != true || editor.Result == null) return;
+        SaveRecord(Guid.NewGuid().ToString("N"), editor.Result, 0);
+    }
+
+    private void OnEditClick(object sender, RoutedEventArgs e)
+    {
+        if (_repo == null || _enc == null || _kek == null) return;
+        if (RecordList.SelectedItem is not VaultListItem item)
+        {
+            StatusText.Text = "请先选择要编辑的条目。";
+            return;
+        }
+        EditRecord(item);
+    }
+
+    private async void EditRecord(VaultListItem item)
+    {
+        if (_repo == null || _enc == null || _kek == null) return;
+        try
+        {
+            var row = await _repo.GetRecordAsync(item.RecordId).ConfigureAwait(true);
+            if (row == null)
+            {
+                StatusText.Text = "条目不存在或已删除。";
+                ReloadList();
+                return;
+            }
+            var plain = _enc.Decrypt(row, _kek);
+            var editor = new RecordEditWindow(plain) { Owner = this };
+            if (editor.ShowDialog() != true || editor.Result == null) return;
+            SaveRecord(item.RecordId, editor.Result, row.Version);
+        }
+        catch
+        {
+            StatusText.Text = "编辑失败，请重试。";
+        }
+    }
+
+    private void OnDeleteClick(object sender, RoutedEventArgs e)
+    {
+        if (_repo == null) return;
+        if (RecordList.SelectedItem is not VaultListItem item)
+        {
+            StatusText.Text = "请先选择要删除的条目。";
+            return;
+        }
+        var result = MessageBox.Show(this, $"确认删除条目：{item.RecordId}？", "删除确认", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+        if (result != MessageBoxResult.Yes) return;
+        DeleteRecord(item);
+    }
+
+    private async void DeleteRecord(VaultListItem item)
+    {
+        if (_repo == null) return;
+        try
+        {
+            await _repo.SoftDeleteAsync(
+                item.RecordId,
+                item.Version + 1,
+                DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ")
+            ).ConfigureAwait(true);
+            StatusText.Text = "已删除条目。";
+            ReloadList();
+        }
+        catch
+        {
+            StatusText.Text = "删除失败，请重试。";
+        }
+    }
+
+    private async void SaveRecord(string recordId, PlainRecord plain, int baseVersion)
+    {
+        if (_repo == null || _enc == null || _kek == null) return;
+        try
+        {
+            var nextVersion = Math.Max(baseVersion + 1, 1);
+            var updatedAt = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ");
+            var row = _enc.Encrypt(recordId, plain, _kek, nextVersion, updatedAt);
+            await _repo.UpsertRecordAsync(row).ConfigureAwait(true);
+            StatusText.Text = "保存成功。";
+            ReloadList();
+        }
+        catch
+        {
+            StatusText.Text = "保存失败，请重试。";
+        }
+    }
+
     private void OnLockClick(object sender, RoutedEventArgs e) => LockVault();
 
     private void LockVault()

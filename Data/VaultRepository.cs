@@ -84,6 +84,21 @@ public sealed class VaultRepository
         return list;
     }
 
+    public async Task SoftDeleteAsync(string recordId, int nextVersion, string updatedAt, CancellationToken ct = default)
+    {
+        await using var conn = await _db.OpenAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            UPDATE vault_records
+            SET deleted = 1, version = $v, updated_at = $u
+            WHERE record_id = $id;
+            """;
+        cmd.Parameters.AddWithValue("$id", recordId);
+        cmd.Parameters.AddWithValue("$v", nextVersion);
+        cmd.Parameters.AddWithValue("$u", updatedAt);
+        await cmd.ExecuteNonQueryAsync(ct);
+    }
+
     private static EncryptedRecordRow ReadRow(SqliteDataReader reader) =>
         new(
             RecordId: reader.GetString(0),

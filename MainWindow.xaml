@@ -3,6 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="密码库"
         Height="520" Width="400"
+        Icon="Assets/app.ico"
         Background="{StaticResource BgBrush}"
         WindowStartupLocation="CenterScreen"
         ResizeMode="CanResizeWithGrip">
@@ -30,8 +31,16 @@
             <ListBox x:Name="RecordList" Grid.Row="1" BorderThickness="1" BorderBrush="#FFE8E8EA"
                      DisplayMemberPath="Summary"
                      MouseDoubleClick="OnRecordListDoubleClick"/>
-            <TextBlock Grid.Row="2" x:Name="StatusText" Margin="0,12,0,0" FontSize="12"
-                       Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap"/>
+            <DockPanel Grid.Row="2" Margin="0,12,0,0">
+                <StackPanel Orientation="Horizontal" DockPanel.Dock="Right">
+                    <Button Content="新增" Margin="0,0,8,0" Padding="14,6" Click="OnAddClick"/>
+                    <Button Content="编辑" Margin="0,0,8,0" Padding="14,6" Click="OnEditClick"/>
+                    <Button Content="删除" Padding="14,6" Click="OnDeleteClick"/>
+                </StackPanel>
+                <TextBlock x:Name="StatusText" FontSize="12"
+                           Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap"
+                           VerticalAlignment="Center"/>
+            </DockPanel>
         </Grid>
     </Grid>
 </Window>
